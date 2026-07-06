@@ -4,6 +4,48 @@ using UnityEngine;
 
 public class TrialHandler : MonoBehaviour
 {
+    // Stores the CSV file that defines all trials.
+    public TextAsset trialCsvFile;
+
+    // Stores the material whose texture is changed for the task sign.
+    public Material signMaterial;
+
+    // Stores the texture that allows taking photos.
+    public Texture2D photoAllowedTexture;
+
+    // Stores the texture that forbids taking photos.
+    public Texture2D photoForbiddenTexture;
+
+    // Stores all parsed trial rows.
+    private List<TrialData> trialList = new List<TrialData>();
+
+    // Stores the randomized trial order.
+    private List<TrialData> randomizedTrialList = new List<TrialData>();
+
+    // Stores the current trial index.
+    private int currentTrialIndex = 0;
+
+    // Stores the number of the currently running trial.
+    private int currentTrialNumber = 0;
+
+    // Stores one trial row from the CSV file.
+    private class TrialData
+    {
+        // Stores the CSV index.
+        public int index;
+
+        // Stores the task type, for example watch or photo.
+        public string task;
+
+        // Stores the image texture name.
+        public string image;
+
+        // Stores the object prefab name.
+        public string objectName;
+    }
+
+
+
     // Stores the two left-side elevator door parts.
     public Transform[] leftDoorParts;
 
@@ -89,13 +131,11 @@ public class TrialHandler : MonoBehaviour
 
     private void Start()
     {
-        Debug.Log("TrialHandler running on: " + gameObject.name);
+        // Loads all trials from the CSV file.
+        LoadTrialsFromCsv();
 
-        Debug.Log("Exit trigger assigned: " + 
-            (exitLiftTrigger != null ? exitLiftTrigger.gameObject.name : "NULL"));
-
-        Debug.Log("Enter trigger assigned: " + 
-            (enterLiftTrigger != null ? enterLiftTrigger.gameObject.name : "NULL"));
+        // Randomizes the trial order.
+        ShuffleTrials();
 
         StartTrial();
     }
@@ -157,6 +197,12 @@ public class TrialHandler : MonoBehaviour
         // Opens the elevator doors again.
         yield return OpenDoors();
 
+        // Waits until the participant is not already inside the exit trigger.
+        yield return new WaitUntil(() => !exitLiftTrigger.IsInside);
+
+        // Waits until the participant has left the elevator far enough.
+        yield return new WaitUntil(() => exitLiftTrigger.WasTriggered);
+
         // Waits until the participant enters the elevator again.
         yield return new WaitUntil(() => enterLiftTrigger.WasTriggered);
 
@@ -211,35 +257,6 @@ public class TrialHandler : MonoBehaviour
         {
             // Stores the initial local position of this right door part.
             rightDoorClosedPositions[i] = rightDoorParts[i].localPosition;
-        }
-    }
-
-    private void SetupRandomTrialStimuli()
-    {
-        // Removes objects from the previous trial.
-        ClearOldObjects();
-
-        // Checks whether at least one prefab is available.
-        if (objectPrefabs.Count > 0)
-        {
-            // Selects a random prefab from the list.
-            GameObject prefab = objectPrefabs[Random.Range(0, objectPrefabs.Count)];
-
-            // Spawns the selected prefab at the left spawn point.
-            currentLeftObject = Instantiate(prefab, leftSpawnPoint.position, leftSpawnPoint.rotation);
-
-            // Spawns the selected prefab at the right spawn point with a 180 degree rotation.
-            currentRightObject = Instantiate(prefab, rightSpawnPoint.position, rightSpawnPoint.rotation * Quaternion.Euler(0f, 180f, 0f));
-        }
-
-        // Checks whether a material and at least one texture are available.
-        if (imageMaterial != null && trialImages.Count > 0)
-        {
-            // Selects a random image from the list.
-            Texture2D randomImage = trialImages[Random.Range(0, trialImages.Count)];
-
-            // Applies the image to the material.
-            ApplyTextureToImageMaterial(randomImage);
         }
     }
 
@@ -431,4 +448,277 @@ public class TrialHandler : MonoBehaviour
         // Moves all right door parts to their closed positions.
         MoveDoorParts(rightDoorParts, rightDoorClosedPositions, rightDoorClosedPositions, 1f);
     }
+
+
+    private void LoadTrialsFromCsv()
+    {
+        // Clears old trial data.
+        trialList.Clear();
+
+        // Checks whether a CSV file was assigned.
+        if (trialCsvFile == null)
+        {
+            // Prints an error if no CSV file is assigned.
+            Debug.LogError("No trial CSV file assigned.");
+            return;
+        }
+
+        // Splits the CSV file into lines.
+        string[] lines = trialCsvFile.text.Split('\n');
+
+        // Stops if the CSV file is empty.
+        if (lines.Length < 2)
+        {
+            // Prints an error if the CSV file has no data rows.
+            Debug.LogError("The trial CSV file has no data rows.");
+            return;
+        }
+
+        // Splits the header line into column names.
+        string[] headers = SplitCsvLine(lines[0]);
+
+        // Finds the index column.
+        int indexColumn = GetColumnIndex(headers, "index");
+
+        // Finds the task column.
+        int taskColumn = GetColumnIndex(headers, "task");
+
+        // Finds the image column.
+        int imageColumn = GetColumnIndex(headers, "image");
+
+        // Finds the object column.
+        int objectColumn = GetColumnIndex(headers, "object");
+
+        // Stops if a required column is missing.
+        if (indexColumn < 0 || taskColumn < 0 || imageColumn < 0 || objectColumn < 0)
+        {
+            // Prints an error for missing CSV columns.
+            Debug.LogError("CSV must contain these columns: index, task, image, object");
+            return;
+        }
+
+        // Loops through all data lines.
+        for (int i = 1; i < lines.Length; i++)
+        {
+            // Trims empty space from the current line.
+            string line = lines[i].Trim();
+
+            // Skips empty lines.
+            if (string.IsNullOrEmpty(line))
+                continue;
+
+            // Splits the current CSV line.
+            string[] columns = SplitCsvLine(line);
+
+            // Skips rows that do not contain enough columns.
+            if (columns.Length <= Mathf.Max(indexColumn, taskColumn, imageColumn, objectColumn))
+            {
+                // Prints a warning for invalid rows.
+                Debug.LogWarning("Skipping invalid CSV row: " + line);
+                continue;
+            }
+
+            // Creates a new trial data object.
+            TrialData trial = new TrialData();
+
+            // Parses the index value.
+            int.TryParse(columns[indexColumn].Trim(), out trial.index);
+
+            // Stores the task value.
+            trial.task = columns[taskColumn].Trim();
+
+            // Stores the image value.
+            trial.image = columns[imageColumn].Trim();
+
+            // Stores the object value.
+            trial.objectName = columns[objectColumn].Trim();
+
+            // Adds the trial to the trial list.
+            trialList.Add(trial);
+        }
+
+        // Prints the number of loaded trials.
+        Debug.Log("Loaded trials: " + trialList.Count);
+    }
+
+    private string[] SplitCsvLine(string line)
+    {
+        // Splits the line by semicolon if semicolons are used.
+        if (line.Contains(";"))
+            return line.Split(';');
+
+        // Splits the line by tab if tabs are used.
+        if (line.Contains("\t"))
+            return line.Split('\t');
+
+        // Splits the line by comma by default.
+        return line.Split(',');
+    }
+
+    private int GetColumnIndex(string[] headers, string columnName)
+    {
+        // Loops through all header columns.
+        for (int i = 0; i < headers.Length; i++)
+        {
+            // Compares the current header with the requested column name.
+            if (headers[i].Trim().ToLower() == columnName.ToLower())
+                return i;
+        }
+
+        // Returns -1 if the column was not found.
+        return -1;
+    }
+
+    private void ShuffleTrials()
+    {
+        // Copies all trials into the randomized list.
+        randomizedTrialList = new List<TrialData>(trialList);
+
+        // Loops backwards through the trial list.
+        for (int i = randomizedTrialList.Count - 1; i > 0; i--)
+        {
+            // Selects a random swap index.
+            int randomIndex = Random.Range(0, i + 1);
+
+            // Stores the current trial temporarily.
+            TrialData temp = randomizedTrialList[i];
+
+            // Moves the random trial to the current position.
+            randomizedTrialList[i] = randomizedTrialList[randomIndex];
+
+            // Moves the temporary trial to the random position.
+            randomizedTrialList[randomIndex] = temp;
+        }
+
+        // Resets the current trial index.
+        currentTrialIndex = 0;
+    }
+
+    private void SetupRandomTrialStimuli()
+    {
+        // Removes objects from the previous trial.
+        ClearOldObjects();
+
+        // Checks whether trials are available.
+        if (randomizedTrialList.Count == 0)
+        {
+            // Prints an error if no trials are available.
+            Debug.LogError("No randomized trials available.");
+            return;
+        }
+
+        // Stops if all trials have already been used.
+        if (currentTrialIndex >= randomizedTrialList.Count)
+        {
+            // Prints that all trials are complete.
+            Debug.Log("All trials completed.");
+            return;
+        }
+
+        // Stores the human-readable trial number.
+        currentTrialNumber = currentTrialIndex + 1;
+
+        // Gets the current randomized trial.
+        TrialData trial = randomizedTrialList[currentTrialIndex];
+
+        // Advances to the next trial.
+        currentTrialIndex++;
+
+        // Finds the prefab that matches the CSV object name.
+        GameObject prefab = objectPrefabs.Find(p => p != null && p.name == trial.objectName);
+
+        // Spawns the prefab if it was found.
+        if (prefab != null)
+        {
+            // Spawns the selected prefab at the left spawn point.
+            currentLeftObject = Instantiate(prefab, leftSpawnPoint.position, leftSpawnPoint.rotation);
+
+            // Spawns the selected prefab at the right spawn point with a 180 degree rotation.
+            currentRightObject = Instantiate(prefab, rightSpawnPoint.position, rightSpawnPoint.rotation * Quaternion.Euler(0f, 180f, 0f));
+        }
+        else
+        {
+            // Prints a warning if the prefab was not found.
+            Debug.LogWarning("Prefab not found for CSV object name: " + trial.objectName);
+        }
+
+        // Finds the texture that matches the CSV image name.
+        Texture2D imageTexture = trialImages.Find(t => t != null && t.name == trial.image);
+
+        // Applies the image texture if it was found.
+        if (imageTexture != null)
+        {
+            // Applies the selected image to the image material.
+            ApplyTextureToMaterial(imageMaterial, imageTexture);
+        }
+        else
+        {
+            // Prints a warning if the image texture was not found.
+            Debug.LogWarning("Image texture not found for CSV image name: " + trial.image);
+        }
+
+        // Applies the correct sign texture for the current task.
+        ApplyTaskTextureToSign(trial.task);
+
+        // Prints the selected trial.
+        Debug.Log("Trial " + currentTrialNumber + " of " + randomizedTrialList.Count + " | CSV index: " + trial.index + " | task: " + trial.task + " | image: " + trial.image + " | object: " + trial.objectName);
+    }
+
+    private void ApplyTaskTextureToSign(string task)
+    {
+        // Checks whether the sign material exists.
+        if (signMaterial == null)
+            return;
+
+        // Stores the texture that should be shown on the sign.
+        Texture2D signTexture = null;
+
+        // Uses the photo-allowed texture for photo trials.
+        if (task.ToLower() == "photo")
+            signTexture = photoAllowedTexture;
+
+        // Uses the photo-forbidden texture for watch trials.
+        if (task.ToLower() == "watch")
+            signTexture = photoForbiddenTexture;
+
+        // Applies the sign texture if one was selected.
+        if (signTexture != null)
+            ApplyTextureToMaterial(signMaterial, signTexture);
+    }
+
+    private void ApplyTextureToMaterial(Material material, Texture2D texture)
+    {
+        // Stops if the material is missing.
+        if (material == null)
+            return;
+
+        // Stops if the texture is missing.
+        if (texture == null)
+            return;
+
+        // Applies the texture to the Autodesk Interactive Base Color Map.
+        if (material.HasProperty("_BaseColorMap"))
+            material.SetTexture("_BaseColorMap", texture);
+
+        // Applies the texture to the Autodesk Interactive Color Map.
+        if (material.HasProperty("_ColorMap"))
+            material.SetTexture("_ColorMap", texture);
+
+        // Applies the texture to the URP Base Map.
+        if (material.HasProperty("_BaseMap"))
+            material.SetTexture("_BaseMap", texture);
+
+        // Applies the texture to the Standard Main Texture.
+        if (material.HasProperty("_MainTex"))
+            material.SetTexture("_MainTex", texture);
+
+        // Sets the base color to white so the texture is displayed without tinting.
+        if (material.HasProperty("_BaseColor"))
+            material.SetColor("_BaseColor", Color.white);
+
+        // Sets the material color to white so the texture is displayed without tinting.
+        if (material.HasProperty("_Color"))
+            material.SetColor("_Color", Color.white);
+    }
+    
 }

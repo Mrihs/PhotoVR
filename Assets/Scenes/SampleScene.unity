@@ -272,7 +272,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7023cbb32d34c40a6a3e8877d3a24df1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::TrialTrigger
-  playerTag: Player
 --- !u!65 &103222911
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -1647,7 +1646,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7023cbb32d34c40a6a3e8877d3a24df1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::TrialTrigger
-  playerTag: Player
 --- !u!65 &649714594
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -2123,7 +2121,7 @@ GameObject:
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
+  m_StaticEditorFlags: 2147483647
   m_IsActive: 1
 --- !u!114 &1296348322
 MonoBehaviour:
@@ -2137,6 +2135,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b713700d0d66e4238adb489f290403b1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::TrialHandler
+  trialCsvFile: {fileID: 4900000, guid: bf818df1cf93d49b5ad963db193d141a, type: 3}
+  signMaterial: {fileID: -6353772653429844056, guid: 7ee23e5a80f11431d8df99a61681bbd0, type: 3}
+  photoAllowedTexture: {fileID: 2800000, guid: b533775f517284144abfe2cbd1b1e1f7, type: 3}
+  photoForbiddenTexture: {fileID: 2800000, guid: 6b684835d2f334a81b3151ddbc7198de, type: 3}
   leftDoorParts:
   - {fileID: 1905318841}
   - {fileID: 10529177}
